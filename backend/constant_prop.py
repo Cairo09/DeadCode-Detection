@@ -153,35 +153,77 @@ class ConstantPropagation:
 
     def analyze(self, cfg: CFG) -> Dict[int, Dict[str, Any]]:
         """
-        Phase 1: run worklist to convergence (no edge pruning).
-        Phase 2: prune infeasible branch edges using converged out-states.
+        SCCP-style reachability-aware worklist algorithm.
+
+        Phase 1: propagate values AND reachability together.
+                 For an if_false whose condition is a known constant,
+                 only the taken branch is added to the executable set —
+                 the other branch never receives values, so its back-edge
+                 cannot poison the analysis.  This correctly detects loop
+                 bodies that are unreachable from the very first iteration
+                 (e.g. while(i < 10) with i=15).
+
+        Phase 2: prune infeasible CFG edges using the converged out-states.
         """
-        in_state:  Dict[int, dict] = {bid: {} for bid in cfg.blocks}
-        out_state: Dict[int, dict] = {bid: {} for bid in cfg.blocks}
+        in_state:   Dict[int, dict] = {bid: {} for bid in cfg.blocks}
+        out_state:  Dict[int, dict] = {bid: {} for bid in cfg.blocks}
+        executable: Set[int]        = {cfg.entry_id}
 
         worklist:    List[int] = [cfg.entry_id]
         in_worklist: Set[int]  = {cfg.entry_id}
 
-        # ── Phase 1: converge ────────────────────────────────────────────────
+        # ── Phase 1: reachability-aware convergence ──────────────────────────
         while worklist:
             bid = worklist.pop(0)
             in_worklist.discard(bid)
 
-            bb  = cfg.blocks[bid]
-            env = _transfer(bb, in_state[bid])
+            if bid not in executable:
+                continue
 
-            if env != out_state[bid]:
-                out_state[bid] = env
-                for succ_id in bb.successors:
-                    succ_in = in_state[succ_id]
-                    merged: dict = {}
-                    for var in set(succ_in) | set(env):
-                        merged[var] = _meet(succ_in.get(var, _TOP), env.get(var, _TOP))
-                    in_state[succ_id] = merged
+            bb = cfg.blocks[bid]
 
-                    if succ_id not in in_worklist:
-                        worklist.append(succ_id)
-                        in_worklist.add(succ_id)
+            # Meet only over executable predecessors so that unreachable
+            # back-edges don't contribute conflicting values.
+            merged: dict = {}
+            if not bb.is_entry:
+                for pred_id in bb.predecessors:
+                    if pred_id not in executable:
+                        continue
+                    for var, val in out_state[pred_id].items():
+                        merged[var] = _meet(merged.get(var, _TOP), val)
+            in_state[bid] = merged
+
+            env = _transfer(bb, merged)
+            if env == out_state[bid]:
+                continue
+            out_state[bid] = env
+
+            # Decide which successors become reachable
+            last = bb.instructions[-1] if bb.instructions else None
+            if last is not None and last[0] == 'if_false':
+                cond_var    = last[1]
+                false_label = last[2]
+                cond_val    = _lookup(env, cond_var)
+                false_bid   = cfg.label_to_block.get(false_label)
+                true_bid    = next((s for s in bb.successors if s != false_bid), None)
+
+                if _is_const(cond_val):
+                    # Only the taken branch becomes reachable
+                    reachable_succs = []
+                    if cond_val and true_bid is not None:
+                        reachable_succs = [true_bid]
+                    elif not cond_val and false_bid is not None:
+                        reachable_succs = [false_bid]
+                else:
+                    reachable_succs = list(bb.successors)
+            else:
+                reachable_succs = list(bb.successors)
+
+            for succ_id in reachable_succs:
+                executable.add(succ_id)
+                if succ_id not in in_worklist:
+                    worklist.append(succ_id)
+                    in_worklist.add(succ_id)
 
         # ── Phase 2: prune infeasible edges using converged out-states ───────
         for bid, bb in cfg.blocks.items():

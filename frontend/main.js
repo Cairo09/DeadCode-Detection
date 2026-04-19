@@ -225,9 +225,6 @@ function renderOverview(results) {
     </div>
   `;
 
-  // Wire up optimize button each render
-  document.getElementById('btn-show-optimized').addEventListener('click', () => showOptimizedModal(results));
-
   results.forEach(r => {
     const deadFuncBadge = r.is_dead_function
       ? ' <span style="background:#7f1d1d;color:#fca5a5;font-size:0.65rem;padding:2px 7px;border-radius:999px;font-weight:700;vertical-align:middle">DEAD FUNCTION</span>'
@@ -288,6 +285,9 @@ function renderOverview(results) {
         </div>`;
     });
   });
+
+  // Wire up AFTER forEach so innerHTML+= doesn't destroy the listener
+  document.getElementById('btn-show-optimized').addEventListener('click', () => showOptimizedModal(results));
 }
 
 // ── Optimized Code Modal ──────────────────────────────────────────────────────
