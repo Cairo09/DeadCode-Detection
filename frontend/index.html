@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeadCode Analyzer — Compiler Optimization Tool</title>
+  <meta name="description" content="Advanced dead code and unreachable path detection using Control Flow Graph, Constant Propagation, and Liveness Analysis — a compiler design visualization tool." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ── Header ───────────────────────────────────────────────── -->
+  <header id="app-header">
+    <div class="header-inner">
+      <div class="logo-group">
+        <div class="logo-icon">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <rect width="32" height="32" rx="8" fill="url(#lg1)"/>
+            <circle cx="8" cy="16" r="3" fill="#fff" opacity="0.9"/>
+            <circle cx="24" cy="8" r="3" fill="#fff" opacity="0.9"/>
+            <circle cx="24" cy="24" r="3" fill="#fff" opacity="0.9"/>
+            <line x1="11" y1="15" x2="21" y2="9" stroke="#fff" stroke-width="1.5" opacity="0.7"/>
+            <line x1="11" y1="17" x2="21" y2="23" stroke="#fff" stroke-width="1.5" opacity="0.7"/>
+            <defs>
+              <linearGradient id="lg1" x1="0" y1="0" x2="32" y2="32">
+                <stop offset="0%" stop-color="#6366f1"/>
+                <stop offset="100%" stop-color="#8b5cf6"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="logo-text">
+          <span class="logo-title">DeadCode<span class="logo-accent">Analyzer</span></span>
+          <span class="logo-sub">Control Flow &amp; Dataflow Analysis</span>
+        </div>
+      </div>
+      <nav class="header-pills">
+        <span class="pill pill-green" id="badge-cfg">CFG</span>
+        <span class="pill pill-blue" id="badge-cp">Const Prop</span>
+        <span class="pill pill-orange" id="badge-la">Liveness</span>
+        <span class="pill pill-red" id="badge-dc">Dead Code</span>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ── Main Layout ───────────────────────────────────────────── -->
+  <main id="app-main">
+
+    <!-- Left column: editor + samples -->
+    <aside id="left-panel">
+      <div class="panel-header">
+        <h2 class="panel-title">
+          <svg class="icon" viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 110 2H4a1 1 0 01-1-1zM3 14a1 1 0 011-1h3a1 1 0 110 2H4a1 1 0 01-1-1z"/></svg>
+          Source Code
+        </h2>
+        <div class="panel-actions">
+          <button id="btn-clear" class="btn btn-ghost btn-sm" title="Clear editor">Clear</button>
+          <button id="btn-analyze" class="btn btn-primary" title="Run analysis">
+            <svg class="icon-sm" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clip-rule="evenodd"/></svg>
+            Analyze
+          </button>
+        </div>
+      </div>
+
+      <!-- Code editor -->
+      <div class="editor-wrapper" id="editor-wrapper">
+        <div class="editor-gutter" id="editor-gutter"></div>
+        <textarea
+          id="code-editor"
+          class="code-editor"
+          spellcheck="false"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="none"
+          placeholder="// Enter your C-like program here...
+// Supported: int/bool types, if/else, while, return
+// Arithmetic: + - * / %
+// Comparison: == != < <= > >=
+// Logical: && || !
+
+int main() {
+    int x = 5;
+    int y = 10;
+    int dead = 99;   // This will never be used
+    int result = x + y;
+    return result;
+}"
+        ></textarea>
+      </div>
+
+      <!-- Sample programs -->
+      <div class="samples-section">
+        <div class="samples-header">
+          <svg class="icon-sm" viewBox="0 0 20 20" fill="currentColor"><path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.396 0 2.7.391 3.8 1.067 1.1-.676 2.404-1.067 3.8-1.067a7.97 7.97 0 013.5.804v-10A7.969 7.969 0 0014.5 4a7.968 7.968 0 00-3.5.804v7.497A7.968 7.968 0 019 12V4.804z"/></svg>
+          Sample Programs
+        </div>
+        <div class="samples-grid" id="samples-grid">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </aside>
+
+    <!-- Right column: results -->
+    <section id="right-panel">
+
+      <!-- Tabs -->
+      <div class="tabs-bar">
+        <button class="tab-btn active" data-tab="overview" id="tab-overview">
+          <svg class="icon-sm" viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+          Overview
+        </button>
+        <button class="tab-btn" data-tab="tac" id="tab-tac">
+          <svg class="icon-sm" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+          3-Address Code
+        </button>
+        <button class="tab-btn" data-tab="cfg" id="tab-cfg">
+          <svg class="icon-sm" viewBox="0 0 20 20" fill="currentColor"><path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM14 11a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0v-1h-1a1 1 0 110-2h1v-1a1 1 0 011-1z"/></svg>
+          CFG
+        </button>
+        <button class="tab-btn" data-tab="dead" id="tab-dead">
+          <svg class="icon-sm" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+          Dead Code
+        </button>
+        <button class="tab-btn" data-tab="liveness" id="tab-liveness">
+          <svg class="icon-sm" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 4a1 1 0 011-1h4a1 1 0 010 2H6.414l2.293 2.293a1 1 0 01-1.414 1.414L5 6.414V8a1 1 0 01-2 0V4zm9 1a1 1 0 010-2h4a1 1 0 011 1v4a1 1 0 01-2 0V6.414l-2.293 2.293a1 1 0 11-1.414-1.414L13.586 5H12zm-9 7a1 1 0 012 0v1.586l2.293-2.293a1 1 0 011.414 1.414L6.414 15H8a1 1 0 010 2H4a1 1 0 01-1-1v-4zm13-1a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 010-2h1.586l-2.293-2.293a1 1 0 011.414-1.414L15 13.586V12a1 1 0 011-1z" clip-rule="evenodd"/></svg>
+          Liveness
+        </button>
+      </div>
+
+      <!-- Tab panels -->
+      <div class="tab-content" id="tab-content">
+
+        <!-- Overview -->
+        <div class="tab-panel active" id="panel-overview">
+          <div class="welcome-state" id="welcome-state">
+            <div class="welcome-icon">
+              <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+                <circle cx="40" cy="40" r="40" fill="url(#wlg)"/>
+                <circle cx="20" cy="40" r="7" fill="white" opacity="0.9"/>
+                <circle cx="60" cy="20" r="7" fill="white" opacity="0.9"/>
+                <circle cx="60" cy="60" r="7" fill="white" opacity="0.9"/>
+                <line x1="27" y1="37" x2="53" y2="23" stroke="white" stroke-width="2.5" opacity="0.7"/>
+                <line x1="27" y1="43" x2="53" y2="57" stroke="white" stroke-width="2.5" opacity="0.7"/>
+                <defs>
+                  <linearGradient id="wlg" x1="0" y1="0" x2="80" y2="80">
+                    <stop offset="0%" stop-color="#6366f1"/>
+                    <stop offset="100%" stop-color="#8b5cf6"/>
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+            <h2>Dead Code &amp; Unreachable Path Detection</h2>
+            <p>Write or load a C-like program, then click <strong>Analyze</strong> to run the full pipeline:</p>
+            <div class="pipeline-steps">
+              <div class="pipeline-step">
+                <div class="step-num">1</div>
+                <div class="step-text"><strong>Lexer + Parser</strong><br/>Tokenize &amp; build AST</div>
+              </div>
+              <div class="pipeline-arrow">→</div>
+              <div class="pipeline-step">
+                <div class="step-num">2</div>
+                <div class="step-text"><strong>IR Generator</strong><br/>3-Address Code</div>
+              </div>
+              <div class="pipeline-arrow">→</div>
+              <div class="pipeline-step">
+                <div class="step-num">3</div>
+                <div class="step-text"><strong>CFG Builder</strong><br/>Basic blocks + edges</div>
+              </div>
+              <div class="pipeline-arrow">→</div>
+              <div class="pipeline-step">
+                <div class="step-num">4</div>
+                <div class="step-text"><strong>Const Prop</strong><br/>Forward dataflow</div>
+              </div>
+              <div class="pipeline-arrow">→</div>
+              <div class="pipeline-step">
+                <div class="step-num">5</div>
+                <div class="step-text"><strong>Liveness</strong><br/>Backward dataflow</div>
+              </div>
+              <div class="pipeline-arrow">→</div>
+              <div class="pipeline-step step-result">
+                <div class="step-num step-num-red">6</div>
+                <div class="step-text"><strong>Detection</strong><br/>Dead + Unreachable</div>
+              </div>
+            </div>
+          </div>
+          <div class="overview-results hidden" id="overview-results">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+
+        <!-- TAC -->
+        <div class="tab-panel" id="panel-tac">
+          <div class="empty-state" id="tac-empty">
+            <p>Run analysis to see three-address code</p>
+          </div>
+          <div class="tac-content hidden" id="tac-content">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+
+        <!-- CFG -->
+        <div class="tab-panel" id="panel-cfg">
+          <div class="empty-state" id="cfg-empty">
+            <p>Run analysis to view the Control Flow Graph</p>
+          </div>
+          <div class="cfg-content hidden" id="cfg-content">
+            <div class="cfg-legend">
+              <span class="legend-item"><span class="legend-dot" style="background:#22c55e"></span>Entry Block</span>
+              <span class="legend-item"><span class="legend-dot" style="background:#3b82f6"></span>Normal/Exit</span>
+              <span class="legend-item"><span class="legend-dot" style="background:#f97316"></span>Has Dead Code</span>
+              <span class="legend-item"><span class="legend-dot" style="background:#ef4444"></span>Unreachable</span>
+            </div>
+            <div id="cfg-display"></div>
+            <div id="cfg-dot-source" class="hidden">
+              <div class="dot-header">DOT Source (paste at graphviz.online)</div>
+              <pre id="dot-pre" class="dot-pre"></pre>
+            </div>
+            <button class="btn btn-ghost btn-sm" id="btn-show-dot" style="margin-top:12px">
+              Show DOT Source
+            </button>
+          </div>
+        </div>
+
+        <!-- Dead Code -->
+        <div class="tab-panel" id="panel-dead">
+          <div class="empty-state" id="dead-empty">
+            <p>Run analysis to detect dead code and unreachable paths</p>
+          </div>
+          <div class="dead-content hidden" id="dead-content">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+
+        <!-- Liveness -->
+        <div class="tab-panel" id="panel-liveness">
+          <div class="empty-state" id="liveness-empty">
+            <p>Run analysis to view liveness sets per block</p>
+          </div>
+          <div class="liveness-content hidden" id="liveness-content">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <!-- Loading overlay -->
+  <div id="loading-overlay" class="hidden">
+    <div class="spinner-wrapper">
+      <div class="spinner"></div>
+      <p>Running analysis pipeline…</p>
+    </div>
+  </div>
+
+  <!-- Error toast -->
+  <div id="error-toast" class="toast hidden">
+    <svg class="icon-sm" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+    <span id="error-msg"></span>
+    <button onclick="document.getElementById('error-toast').classList.add('hidden')">✕</button>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
