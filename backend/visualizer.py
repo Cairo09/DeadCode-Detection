@@ -25,8 +25,12 @@ def _escape_dot(text: str) -> str:
     return text
 
 
-def cfg_to_dot(cfg: CFG) -> str:
-    """Generate a Graphviz DOT string for the CFG."""
+def cfg_to_dot(cfg: CFG, prefix: str = '') -> str:
+    """Generate a Graphviz DOT string for a single CFG.
+
+    prefix — prepended to every node ID so that multiple functions
+             combined into one digraph don't share node names.
+    """
     lines = [
         f'digraph "{cfg.func_name}" {{',
         '  graph [rankdir=TB, bgcolor="#0d1117", fontname="Courier New", pad="0.5"];',
@@ -34,8 +38,10 @@ def cfg_to_dot(cfg: CFG) -> str:
         '  edge [color="#78909c", fontcolor="#78909c", fontsize=9, fontname="Courier New"];',
     ]
 
+    def nid(bid):
+        return f'{prefix}B{bid}'
+
     for bid, bb in cfg.blocks.items():
-        # Choose fill/border/font colors
         if bb.is_unreachable:
             fill, border, font = '#7f1d1d', '#ef4444', '#fecaca'
         elif bb.is_entry:
@@ -47,13 +53,11 @@ def cfg_to_dot(cfg: CFG) -> str:
         else:
             fill, border, font = '#1e293b', '#475569', '#e2e8f0'
 
-        # Build header
         header = bb.label or f"Block {bid}"
         if bb.is_entry:       header += "  [ENTRY]"
         if bb.is_exit:        header += "  [EXIT]"
         if bb.is_unreachable: header += "  [UNREACHABLE]"
 
-        # Build instruction lines
         instr_lines = []
         for i, instr in enumerate(bb.instructions):
             txt = _fmt_instr(instr)
@@ -61,42 +65,44 @@ def cfg_to_dot(cfg: CFG) -> str:
                 txt = f"[DEAD] {txt}"
             instr_lines.append(_escape_dot(txt))
 
-        body = "\\l".join(instr_lines) + "\\l" if instr_lines else ""
-        sep  = _escape_dot("─" * 28)
+        body  = "\\l".join(instr_lines) + "\\l" if instr_lines else ""
+        sep   = _escape_dot("─" * 28)
         label = f"{_escape_dot(header)}\\n{sep}\\l{body}"
 
         lines.append(
-            f'  B{bid} [label="{label}", '
+            f'  {nid(bid)} [label="{label}", '
             f'fillcolor="{fill}", color="{border}", fontcolor="{font}"];'
         )
 
-    # Add edges
     for bid, bb in cfg.blocks.items():
         for succ in bb.successors:
-            # Determine edge style
             if bb.instructions:
                 last = bb.instructions[-1]
                 if last[0] == 'if_false':
                     false_label = last[2]
-                    target_bid = cfg.label_to_block.get(false_label)
+                    target_bid  = cfg.label_to_block.get(false_label)
                     if succ == target_bid:
-                        lines.append(f'  B{bid} -> B{succ} [label="false", color="#ef4444"];')
+                        lines.append(f'  {nid(bid)} -> {nid(succ)} [label="false", color="#ef4444"];')
                     else:
-                        lines.append(f'  B{bid} -> B{succ} [label="true", color="#22c55e"];')
+                        lines.append(f'  {nid(bid)} -> {nid(succ)} [label="true",  color="#22c55e"];')
                     continue
-            lines.append(f'  B{bid} -> B{succ};')
+            lines.append(f'  {nid(bid)} -> {nid(succ)};')
 
     lines.append("}")
     return "\n".join(lines)
 
 
 def generate_dot_for_all(cfgs: List[CFG]) -> str:
-    """Combine multiple CFGs into one DOT string."""
+    """Combine multiple CFGs into one DOT digraph using cluster subgraphs.
+
+    Each function gets a unique node-ID prefix (f0_, f1_, …) so that
+    blocks with the same numeric ID in different functions do not collide.
+    """
     parts = []
     for i, cfg in enumerate(cfgs):
-        dot = cfg_to_dot(cfg)
-        # Wrap each function's graph as a subgraph cluster
-        inner = "\n".join(dot.split("\n")[1:-1])
+        prefix = f'f{i}_'
+        dot    = cfg_to_dot(cfg, prefix=prefix)
+        inner  = "\n".join(dot.split("\n")[1:-1])   # strip outer digraph { }
         parts.append(
             f'  subgraph cluster_{i} {{\n'
             f'    label="{cfg.func_name}()";\n'

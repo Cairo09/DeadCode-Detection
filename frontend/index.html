@@ -207,15 +207,39 @@ int main() {
             <p>Run analysis to view the Control Flow Graph</p>
           </div>
           <div class="cfg-content hidden" id="cfg-content">
-            <div class="cfg-legend">
-              <span class="legend-item"><span class="legend-dot" style="background:#22c55e"></span>Entry Block</span>
-              <span class="legend-item"><span class="legend-dot" style="background:#3b82f6"></span>Normal/Exit</span>
-              <span class="legend-item"><span class="legend-dot" style="background:#f97316"></span>Has Dead Code</span>
-              <span class="legend-item"><span class="legend-dot" style="background:#ef4444"></span>Unreachable</span>
+
+            <!-- Toolbar: legend + view toggle + zoom -->
+            <div class="cfg-toolbar">
+              <div class="cfg-legend">
+                <span class="legend-item"><span class="legend-dot" style="background:#22c55e"></span>Entry</span>
+                <span class="legend-item"><span class="legend-dot" style="background:#3b82f6"></span>Normal/Exit</span>
+                <span class="legend-item"><span class="legend-dot" style="background:#f97316"></span>Dead Code</span>
+                <span class="legend-item"><span class="legend-dot" style="background:#ef4444"></span>Unreachable</span>
+              </div>
+              <div class="cfg-controls-right">
+                <div class="view-toggle">
+                  <button class="view-btn active" id="cfg-graph-btn">Graph</button>
+                  <button class="view-btn" id="cfg-block-btn">Blocks</button>
+                </div>
+                <div class="zoom-controls" id="cfg-zoom-controls">
+                  <button class="zoom-btn" id="cfg-zoom-in"    title="Zoom in">+</button>
+                  <button class="zoom-btn" id="cfg-zoom-reset" title="Fit to view">⊡</button>
+                  <button class="zoom-btn" id="cfg-zoom-out"   title="Zoom out">−</button>
+                </div>
+              </div>
             </div>
-            <div id="cfg-display"></div>
+
+            <!-- Graph view (Viz.js rendered SVG) -->
+            <div id="cfg-graph-container" class="cfg-graph-container">
+              <div id="cfg-graph-inner" class="cfg-graph-inner"></div>
+            </div>
+
+            <!-- Block cards view (hidden by default) -->
+            <div id="cfg-display" class="hidden"></div>
+
+            <!-- DOT source -->
             <div id="cfg-dot-source" class="hidden">
-              <div class="dot-header">DOT Source (paste at graphviz.online)</div>
+              <div class="dot-header">DOT Source</div>
               <pre id="dot-pre" class="dot-pre"></pre>
             </div>
             <button class="btn btn-ghost btn-sm" id="btn-show-dot" style="margin-top:12px">
@@ -263,6 +287,7 @@ int main() {
     <button onclick="document.getElementById('error-toast').classList.add('hidden')">✕</button>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@viz-js/viz@3/lib/viz-standalone.js"></script>
   <script src="main.js"></script>
 </body>
 </html>

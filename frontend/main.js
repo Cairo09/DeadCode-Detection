@@ -7,6 +7,22 @@ const API = window.location.origin;
 // ─── State ──────────────────────────────────────────────────────────────────
 let lastResults = null;
 
+// ─── Viz.js (client-side Graphviz) ───────────────────────────────────────────
+let _vizInstance = null;
+if (window.Viz) {
+  Viz.instance().then(v => { _vizInstance = v; }).catch(() => {});
+}
+
+// ─── CFG pan/zoom state (viewBox-based — never blurry) ───────────────────────
+// Instead of CSS transform (which rasterizes then upscales = blurry),
+// we manipulate the SVG viewBox directly so the browser re-renders vectors.
+let _cfgVB        = null;   // current viewBox {x, y, w, h}
+let _cfgNaturalVB = null;   // original full-graph viewBox
+let _cfgDragging  = false;
+let _cfgDragStart = null;   // {screenX, screenY, vb: snapshot}
+let _cfgDot  = null;
+let _cfgView = 'graph';
+
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 const editor      = document.getElementById('code-editor');
 const gutter      = document.getElementById('editor-gutter');
@@ -123,11 +139,11 @@ async function runAnalysis() {
 
     lastResults = data.results;
 
-    // Visualize (CFG DOT)
+    // Fetch DOT source for client-side Viz.js rendering
     const vizRes = await fetch(`${API}/visualize`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({code, format: 'svg'})
+      body: JSON.stringify({code, format: 'dot'})
     });
     const vizData = await vizRes.json();
 
@@ -248,7 +264,7 @@ function renderOverview(results) {
 
     r.dead_code.forEach(b => {
       const deadList = b.dead_instructions.map(d =>
-        `<li class="${b.is_unreachable ? '' : 'dead-instr'}">${escHtml(d.instruction)}</li>`
+        `<li class="dead-instr">${escHtml(d.instruction)}</li>`
       ).join('');
       ov.innerHTML += `
         <div class="alert-card dead">
@@ -306,79 +322,209 @@ function renderTAC(results) {
 // ── CFG ───────────────────────────────────────────────────────────────────────
 function renderCFG(results, vizData) {
   document.getElementById('cfg-empty').classList.add('hidden');
-  const cc = document.getElementById('cfg-content');
-  cc.classList.remove('hidden');
+  document.getElementById('cfg-content').classList.remove('hidden');
 
-  const display = document.getElementById('cfg-display');
-  display.innerHTML = '';
+  _cfgDot = (vizData && vizData.dot) || null;
+  if (_cfgDot) document.getElementById('dot-pre').textContent = _cfgDot;
 
-  // If we got SVG from Graphviz, show it
-  if (vizData && vizData.svg) {
-    display.innerHTML = vizData.svg;
-  } else {
-    // Render block cards manually
-    results.forEach(r => {
-      const funcTitle = document.createElement('div');
-      funcTitle.className = 'section-title';
-      funcTitle.textContent = `Function: ${r.function}()`;
-      display.appendChild(funcTitle);
+  // Toggle buttons
+  document.getElementById('cfg-graph-btn').onclick = () => { _cfgView = 'graph';  _cfgApplyView(results); };
+  document.getElementById('cfg-block-btn').onclick = () => { _cfgView = 'blocks'; _cfgApplyView(results); };
 
-      const grid = document.createElement('div');
-      grid.className = 'cfg-blocks-grid';
+  // Zoom buttons — operate on the viewBox
+  document.getElementById('cfg-zoom-in').onclick    = () => _cfgZoom(1.3);
+  document.getElementById('cfg-zoom-out').onclick   = () => _cfgZoom(1 / 1.3);
+  document.getElementById('cfg-zoom-reset').onclick = _cfgFit;
 
-      r.blocks.forEach(b => {
-        let cls = 'cfg-block-card';
-        if (b.is_unreachable) cls += ' unreachable';
-        else if (b.is_entry) cls += ' entry';
-        else if (b.is_exit) cls += ' exit';
-        if (b.has_dead_code) cls += ' dead-code';
+  // Mouse pan/wheel zoom — attach once
+  const container = document.getElementById('cfg-graph-container');
+  if (!container.dataset.eventsAttached) {
+    container.dataset.eventsAttached = '1';
 
-        const badges = [];
-        if (b.is_entry)      badges.push('<span class="block-badge entry">Entry</span>');
-        if (b.is_exit)       badges.push('<span class="block-badge exit">Exit</span>');
-        if (b.is_unreachable) badges.push('<span class="block-badge unreachable">Unreachable</span>');
-        if (b.has_dead_code)  badges.push('<span class="block-badge dead-code">Dead Code</span>');
+    container.addEventListener('wheel', e => {
+      e.preventDefault();
+      _cfgZoom(e.deltaY < 0 ? 1.12 : 0.89, e.clientX, e.clientY);
+    }, { passive: false });
 
-        const instrHTML = b.instructions.map((ins, idx) => {
-          const isDead = b.is_unreachable;
-          return `<div class="cfg-instr${isDead?' dead':''}">${escHtml(ins)}</div>`;
-        }).join('');
-
-        const card = document.createElement('div');
-        card.className = cls;
-        card.innerHTML = `
-          <div class="cfg-block-header">
-            <span>${escHtml(b.label)}</span>
-            <span style="display:flex;gap:4px">${badges.join('')}</span>
-          </div>
-          <div class="cfg-block-body">${instrHTML || '<i style="color:var(--text-muted);font-size:0.7rem">empty</i>'}</div>
-          <div class="cfg-connections">
-            <span>→ [${b.successors.map(s=>'B'+s).join(', ')||'—'}]</span>
-            <span>← [${b.predecessors.map(p=>'B'+p).join(', ')||'—'}]</span>
-          </div>`;
-        grid.appendChild(card);
-      });
-      display.appendChild(grid);
+    container.addEventListener('mousedown', e => {
+      if (!_cfgVB) return;
+      _cfgDragging  = true;
+      _cfgDragStart = { sx: e.clientX, sy: e.clientY, vb: { ..._cfgVB } };
+      container.style.cursor = 'grabbing';
+    });
+    window.addEventListener('mousemove', e => {
+      if (!_cfgDragging || !_cfgVB || !_cfgDragStart) return;
+      const rect = container.getBoundingClientRect();
+      const dx = (e.clientX - _cfgDragStart.sx) / rect.width  * _cfgVB.w;
+      const dy = (e.clientY - _cfgDragStart.sy) / rect.height * _cfgVB.h;
+      _cfgVB.x = _cfgDragStart.vb.x - dx;
+      _cfgVB.y = _cfgDragStart.vb.y - dy;
+      _cfgApplyVB();
+    });
+    window.addEventListener('mouseup', () => {
+      _cfgDragging = false;
+      container.style.cursor = 'grab';
     });
   }
 
-  // Set DOT source
-  if (vizData && vizData.dot) {
-    document.getElementById('dot-pre').textContent = vizData.dot;
-    document.getElementById('cfg-dot-source').classList.remove('hidden');
-    btnShowDot.classList.remove('hidden');
-    btnShowDot.textContent = 'Hide DOT Source';
+  _cfgView = 'graph';
+  _cfgApplyView(results);
+}
+
+function _cfgApplyView(results) {
+  const graphCont    = document.getElementById('cfg-graph-container');
+  const blockDisplay = document.getElementById('cfg-display');
+  const zoomControls = document.getElementById('cfg-zoom-controls');
+
+  document.getElementById('cfg-graph-btn').classList.toggle('active', _cfgView === 'graph');
+  document.getElementById('cfg-block-btn').classList.toggle('active', _cfgView === 'blocks');
+
+  if (_cfgView === 'graph') {
+    graphCont.classList.remove('hidden');
+    blockDisplay.classList.add('hidden');
+    zoomControls.style.visibility = 'visible';
+    _cfgRenderGraph();
   } else {
-    // Request DOT separately
-    const code = editor.value.trim();
-    fetch(`${API}/visualize`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({code, format: 'dot'})
-    }).then(r=>r.json()).then(d => {
-      if (d.dot) document.getElementById('dot-pre').textContent = d.dot;
-    }).catch(()=>{});
+    graphCont.classList.add('hidden');
+    blockDisplay.classList.remove('hidden');
+    zoomControls.style.visibility = 'hidden';
+    _cfgRenderBlocks(results);
   }
+}
+
+function _cfgRenderGraph() {
+  const inner = document.getElementById('cfg-graph-inner');
+  inner.innerHTML = '';
+  _cfgVB = null; _cfgNaturalVB = null;
+
+  if (!_cfgDot) {
+    inner.innerHTML = '<p style="color:var(--text-muted);padding:32px;text-align:center">No DOT source available</p>';
+    return;
+  }
+  if (!_vizInstance) {
+    inner.innerHTML = '<p style="color:var(--text-muted);padding:32px;text-align:center">Viz.js loading… retry in a moment</p>';
+    Viz.instance().then(v => { _vizInstance = v; _cfgRenderGraph(); })
+                  .catch(() => { inner.innerHTML = '<p style="color:var(--red);padding:32px;text-align:center">Could not load Viz.js (check network)</p>'; });
+    return;
+  }
+
+  try {
+    const svg = _vizInstance.renderSVGElement(_cfgDot);
+
+    // Parse the natural viewBox Graphviz embedded in the SVG
+    const vbStr = svg.getAttribute('viewBox');
+    if (vbStr) {
+      const [x, y, w, h] = vbStr.trim().split(/[\s,]+/).map(Number);
+      _cfgNaturalVB = { x, y, w, h };
+    } else {
+      const w = parseFloat(svg.getAttribute('width'))  || 800;
+      const h = parseFloat(svg.getAttribute('height')) || 600;
+      _cfgNaturalVB = { x: 0, y: 0, w, h };
+      svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    }
+    _cfgVB = { ..._cfgNaturalVB };
+
+    // SVG fills the container — viewBox controls what we see (crisp at all zoom)
+    svg.setAttribute('width',  '100%');
+    svg.setAttribute('height', '100%');
+    svg.style.width  = '100%';
+    svg.style.height = '100%';
+    svg.style.display = 'block';
+
+    inner.appendChild(svg);
+  } catch (e) {
+    inner.innerHTML = `<p style="color:var(--red);padding:32px;text-align:center">Render error: ${escHtml(String(e))}</p>`;
+  }
+}
+
+// Zoom: shrink/grow viewBox around a screen point (defaults to center)
+function _cfgZoom(factor, screenX, screenY) {
+  if (!_cfgVB || !_cfgNaturalVB) return;
+  const container = document.getElementById('cfg-graph-container');
+  const rect = container.getBoundingClientRect();
+
+  // Anchor point in SVG coordinates
+  const cx = screenX !== undefined ? screenX - rect.left : rect.width  / 2;
+  const cy = screenY !== undefined ? screenY - rect.top  : rect.height / 2;
+  const svgCX = _cfgVB.x + (cx / rect.width)  * _cfgVB.w;
+  const svgCY = _cfgVB.y + (cy / rect.height) * _cfgVB.h;
+
+  const newW = _cfgVB.w / factor;
+  const newH = _cfgVB.h / factor;
+
+  // Clamp: don't zoom beyond 20× in or 5× out from natural
+  const minW = _cfgNaturalVB.w / 20;
+  const maxW = _cfgNaturalVB.w * 5;
+  if (newW < minW || newW > maxW) return;
+
+  _cfgVB.x = svgCX - (cx / rect.width)  * newW;
+  _cfgVB.y = svgCY - (cy / rect.height) * newH;
+  _cfgVB.w = newW;
+  _cfgVB.h = newH;
+  _cfgApplyVB();
+}
+
+// Fit: reset viewBox to show the whole graph
+function _cfgFit() {
+  if (!_cfgNaturalVB) return;
+  _cfgVB = { ..._cfgNaturalVB };
+  _cfgApplyVB();
+}
+
+// Write _cfgVB back into the SVG's viewBox attribute
+function _cfgApplyVB() {
+  const svg = document.querySelector('#cfg-graph-inner svg');
+  if (svg && _cfgVB) {
+    svg.setAttribute('viewBox', `${_cfgVB.x} ${_cfgVB.y} ${_cfgVB.w} ${_cfgVB.h}`);
+  }
+}
+
+function _cfgRenderBlocks(results) {
+  const display = document.getElementById('cfg-display');
+  display.innerHTML = '';
+
+  results.forEach(r => {
+    const funcTitle = document.createElement('div');
+    funcTitle.className = 'section-title';
+    funcTitle.textContent = `Function: ${r.function}()`;
+    display.appendChild(funcTitle);
+
+    const grid = document.createElement('div');
+    grid.className = 'cfg-blocks-grid';
+
+    r.blocks.forEach(b => {
+      let cls = 'cfg-block-card';
+      if (b.is_unreachable)  cls += ' unreachable';
+      else if (b.is_entry)   cls += ' entry';
+      else if (b.is_exit)    cls += ' exit';
+      if (b.has_dead_code)   cls += ' dead-code';
+
+      const badges = [];
+      if (b.is_entry)       badges.push('<span class="block-badge entry">Entry</span>');
+      if (b.is_exit)        badges.push('<span class="block-badge exit">Exit</span>');
+      if (b.is_unreachable) badges.push('<span class="block-badge unreachable">Unreachable</span>');
+      if (b.has_dead_code)  badges.push('<span class="block-badge dead-code">Dead Code</span>');
+
+      const instrHTML = b.instructions.map(ins =>
+        `<div class="cfg-instr${b.is_unreachable ? ' dead' : ''}">${escHtml(ins)}</div>`
+      ).join('');
+
+      const card = document.createElement('div');
+      card.className = cls;
+      card.innerHTML = `
+        <div class="cfg-block-header">
+          <span>${escHtml(b.label)}</span>
+          <span style="display:flex;gap:4px">${badges.join('')}</span>
+        </div>
+        <div class="cfg-block-body">${instrHTML || '<i style="color:var(--text-muted);font-size:0.7rem">empty</i>'}</div>
+        <div class="cfg-connections">
+          <span>→ [${b.successors.map(s => 'B'+s).join(', ') || '—'}]</span>
+          <span>← [${b.predecessors.map(p => 'B'+p).join(', ') || '—'}]</span>
+        </div>`;
+      grid.appendChild(card);
+    });
+    display.appendChild(grid);
+  });
 }
 
 // ── Dead Code ─────────────────────────────────────────────────────────────────

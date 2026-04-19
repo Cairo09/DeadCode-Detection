@@ -445,8 +445,8 @@ body {
   border-radius: 4px;
   margin-bottom: 3px;
 }
-.dead-instr { text-decoration: line-through; color: var(--text-muted) !important; }
-.dead-instr::after { content:' ← DEAD'; color: var(--red); font-style: italic; text-decoration: none; display: inline; }
+.dead-instr { color: var(--orange) !important; }
+.dead-instr::after { content:' ← DEAD'; color: var(--red); font-style: italic; display: inline; }
 
 /* ── TAC Panel ───────────────────────────────────────────────── */
 .tac-func {
@@ -493,20 +493,106 @@ body {
 .tac-instr.is-return .tac-code{ color: var(--green); }
 
 /* ── CFG Panel ───────────────────────────────────────────────── */
-.cfg-legend {
+
+/* Toolbar row: legend on the left, controls on the right */
+.cfg-toolbar {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   flex-wrap: wrap;
-  gap: 16px;
-  margin-bottom: 16px;
-  padding: 12px 16px;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
-.legend-item { display: flex; align-items: center; gap: 8px; font-size: 0.72rem; color: var(--text-secondary); }
-.legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-#cfg-display { overflow-x: auto; }
-#cfg-display svg { max-width: 100%; height: auto; display: block; }
+.cfg-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.cfg-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Legend dots */
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.71rem; color: var(--text-secondary); }
+.legend-dot   { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+/* Graph/Blocks toggle */
+.view-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.view-btn {
+  padding: 4px 14px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  font-family: var(--font-sans);
+}
+.view-btn:first-child { border-right: 1px solid var(--border); }
+.view-btn.active { background: var(--accent); color: #fff; }
+.view-btn:not(.active):hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* Zoom controls */
+.zoom-controls {
+  display: flex;
+  gap: 4px;
+}
+.zoom-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  line-height: 1;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  font-family: var(--font-sans);
+}
+.zoom-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* Graph container — the SVG fills this, viewBox controls pan/zoom */
+.cfg-graph-container {
+  width: 100%;
+  height: 600px;
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: grab;
+  margin-bottom: 12px;
+  user-select: none;
+  overflow: hidden;
+}
+.cfg-graph-container:active { cursor: grabbing; }
+
+.cfg-graph-inner {
+  width: 100%;
+  height: 100%;
+}
+.cfg-graph-inner svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Block cards view */
+#cfg-display { overflow-x: auto; margin-bottom: 12px; }
 .cfg-blocks-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -528,10 +614,10 @@ body {
   justify-content: space-between;
   align-items: center;
 }
-.cfg-block-card.entry   .cfg-block-header { background: rgba(34,197,94,0.15);  color: var(--green); }
-.cfg-block-card.exit    .cfg-block-header { background: rgba(59,130,246,0.15);  color: var(--blue); }
+.cfg-block-card.entry       .cfg-block-header { background: rgba(34,197,94,0.15);  color: var(--green); }
+.cfg-block-card.exit        .cfg-block-header { background: rgba(59,130,246,0.15); color: var(--blue); }
 .cfg-block-card.unreachable .cfg-block-header { background: rgba(239,68,68,0.15);  color: var(--red); }
-.cfg-block-card.dead-code .cfg-block-header { background: rgba(249,115,22,0.15); color: var(--orange); }
+.cfg-block-card.dead-code   .cfg-block-header { background: rgba(249,115,22,0.15); color: var(--orange); }
 .cfg-block-body { padding: 8px 12px; }
 .cfg-instr {
   font-family: var(--font-mono);
@@ -549,6 +635,8 @@ body {
   display: flex;
   gap: 12px;
 }
+
+/* DOT source block */
 .dot-header {
   font-size: 0.72rem;
   font-weight: 600;
