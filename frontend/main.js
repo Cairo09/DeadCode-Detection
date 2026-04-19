@@ -185,6 +185,10 @@ function renderOverview(results) {
     if (r.is_dead_function) deadFuncs++;
   });
 
+  // Count total removed instructions across all functions
+  let totalRemoved = 0;
+  results.forEach(r => { totalRemoved += (r.elimination_stats?.total_removed_instructions || 0); });
+
   ov.innerHTML = `
     <div class="stats-grid">
       <div class="stat-card blue">
@@ -212,7 +216,17 @@ function renderOverview(results) {
         <div class="stat-label">Dead Functions</div>
       </div>
     </div>
+    <div style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <button class="btn btn-optimize" id="btn-show-optimized">
+        <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+        View Optimized Code
+      </button>
+      ${totalRemoved > 0 ? `<span style="font-size:0.75rem;color:var(--green)">${totalRemoved} instruction(s) eliminated</span>` : '<span style="font-size:0.75rem;color:var(--text-muted)">No instructions to eliminate</span>'}
+    </div>
   `;
+
+  // Wire up optimize button each render
+  document.getElementById('btn-show-optimized').addEventListener('click', () => showOptimizedModal(results));
 
   results.forEach(r => {
     const deadFuncBadge = r.is_dead_function
@@ -275,6 +289,96 @@ function renderOverview(results) {
     });
   });
 }
+
+// ── Optimized Code Modal ──────────────────────────────────────────────────────
+const optModal      = document.getElementById('opt-modal');
+const optModalBody  = document.getElementById('opt-modal-body');
+const optCopyBtn    = document.getElementById('opt-copy-btn');
+
+function closeOptModal() { optModal.classList.add('hidden'); }
+document.getElementById('opt-modal-close').addEventListener('click', closeOptModal);
+document.getElementById('opt-modal-close2').addEventListener('click', closeOptModal);
+optModal.addEventListener('click', e => { if (e.target === optModal) closeOptModal(); });
+
+let _optAllLines = [];   // flat list for copy
+
+function showOptimizedModal(results) {
+  optModalBody.innerHTML = '';
+  _optAllLines = [];
+
+  results.forEach(r => {
+    const stats = r.elimination_stats || {};
+    const orig  = stats.original_instruction_count  || 0;
+    const opt   = stats.optimized_instruction_count || 0;
+    const removed = stats.total_removed_instructions || 0;
+    const pct   = orig > 0 ? Math.round((removed / orig) * 100) : 0;
+
+    // Stats bar for this function
+    const funcLabel = r.is_dead_function
+      ? `${r.function}() <span style="color:#fca5a5;font-size:0.7rem">[DEAD FUNCTION — entire body eliminated]</span>`
+      : r.function + '()';
+
+    optModalBody.innerHTML += `
+      <div class="opt-func-section">
+        <div class="opt-func-title">${funcLabel}</div>
+        <div class="opt-stats-row">
+          <span class="opt-stat"><span class="opt-stat-num">${orig}</span> original</span>
+          <span class="opt-arrow">→</span>
+          <span class="opt-stat"><span class="opt-stat-num" style="color:var(--green)">${opt}</span> optimized</span>
+          ${removed > 0
+            ? `<span class="opt-removed">−${removed} removed (${pct}%)</span>`
+            : `<span style="color:var(--text-muted);font-size:0.72rem">nothing to remove</span>`}
+        </div>
+      </div>`;
+
+    // Breakdown chips
+    if (removed > 0) {
+      const chips = [];
+      if (stats.removed_unreachable_instructions > 0)
+        chips.push(`<span class="opt-chip red">${stats.removed_unreachable_instructions} unreachable block instr.</span>`);
+      if (stats.removed_dead_instructions > 0)
+        chips.push(`<span class="opt-chip orange">${stats.removed_dead_instructions} dead assignments</span>`);
+      if (chips.length)
+        optModalBody.innerHTML += `<div class="opt-chips">${chips.join('')}</div>`;
+    }
+
+    // Optimized TAC listing
+    const lines = r.optimized_tac || [];
+    if (r.is_dead_function) {
+      optModalBody.innerHTML += `<div class="opt-dead-fn-msg">Function body fully eliminated — not emitted in optimized output.</div>`;
+    } else if (lines.length === 0) {
+      optModalBody.innerHTML += `<div class="opt-dead-fn-msg" style="color:var(--text-muted)">No instructions remain.</div>`;
+    } else {
+      const listEl = document.createElement('div');
+      listEl.className = 'opt-tac-list';
+      lines.forEach((line, idx) => {
+        _optAllLines.push(line);
+        const lo = line.toLowerCase();
+        let cls = 'opt-tac-line';
+        if (lo.startsWith('label'))    cls += ' is-label';
+        if (lo.startsWith('goto'))     cls += ' is-goto';
+        if (lo.startsWith('if_false')) cls += ' is-branch';
+        if (lo.startsWith('return'))   cls += ' is-return';
+        listEl.innerHTML += `<div class="${cls}"><span class="opt-line-num">${idx + 1}</span><span>${escHtml(line)}</span></div>`;
+      });
+      optModalBody.appendChild(listEl);
+    }
+
+    optModalBody.innerHTML += '<div class="opt-func-divider"></div>';
+  });
+
+  optModal.classList.remove('hidden');
+}
+
+optCopyBtn.addEventListener('click', () => {
+  navigator.clipboard.writeText(_optAllLines.join('\n')).then(() => {
+    optCopyBtn.textContent = 'Copied!';
+    setTimeout(() => { optCopyBtn.textContent = 'Copy Optimized TAC'; }, 2000);
+  }).catch(() => {
+    optCopyBtn.textContent = 'Copy failed';
+    setTimeout(() => { optCopyBtn.textContent = 'Copy Optimized TAC'; }, 2000);
+  });
+});
 
 // ── Three-Address Code ─────────────────────────────────────────────────────────
 function renderTAC(results) {

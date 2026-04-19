@@ -272,6 +272,26 @@ int main() {
     </section>
   </main>
 
+  <!-- Optimized Code Modal -->
+  <div id="opt-modal" class="opt-modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="opt-modal-box">
+      <div class="opt-modal-header">
+        <div class="opt-modal-title">
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" style="color:#22c55e"><path fill-rule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+          Optimized Code Output
+        </div>
+        <button class="opt-modal-close" id="opt-modal-close" title="Close">✕</button>
+      </div>
+      <div class="opt-modal-body" id="opt-modal-body">
+        <!-- populated by JS -->
+      </div>
+      <div class="opt-modal-footer">
+        <button class="btn btn-ghost btn-sm" id="opt-copy-btn">Copy Optimized TAC</button>
+        <button class="btn btn-primary btn-sm" id="opt-modal-close2">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Loading overlay -->
   <div id="loading-overlay" class="hidden">
     <div class="spinner-wrapper">
